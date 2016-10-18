@@ -157,3 +157,67 @@
                       (f (cdr lst) (1+ n) acc))
                   (reverse acc))))
     (f lst 1 nil)))
+
+(defun rotate (lst n)
+  (let ((offset (mod (+ n (length lst)) (length lst))))
+    (multiple-value-bind (l1 l2) (split lst offset)
+      (append l2 l1))))
+
+(defun remove-at (lst remove-n)
+  (labels ((f (lst n acc)
+             (if lst
+                 (if (= n remove-n)
+                     (f (cdr lst) (1+ n) acc)
+                     (f (cdr lst) (1+ n) (cons (car lst) acc)))
+                 acc)))
+    (reverse (f lst 1 nil))))
+
+(defun insert-at (el lst insert-n)
+  (labels ((f (lst n acc)
+             (if lst
+                 (if (= n insert-n)
+                     (f (cdr lst) (1+ n) (cons (car lst) (cons el acc)))
+                     (f (cdr lst) (1+ n) (cons (car lst) acc)))
+                 acc)))
+    (reverse (f lst 1 nil))))
+
+(defun range (start end)
+  (let ((step (if (< start end) 1 -1)))
+    (labels ((f (n acc)
+               (if (= n (+ end step))
+                   acc
+                   (f (+ n step) (cons n acc)))))
+      (reverse (f start nil)))))
+
+(defun rnd-select (lst n)
+  (labels ((f (lst n acc)
+              (if (and lst (> n 0))
+                  (let ((rnd (random (length lst))))
+                    (f (remove-at lst (1+ rnd)) (1- n) (cons (nth rnd lst) acc)))
+                  acc)))
+    (f lst n nil)))
+
+(defun lotto-select (n max)
+  (rnd-select (range 1 max) n))
+
+(defun rnd-permu (lst)
+  (rnd-select lst (length lst)))
+
+(defun bc (n k)
+  (cond
+    ((= n k) 1)
+    ((= k 0) 1)
+    (t (+ (bc (1- n) (1- k)) (bc (1- n) k)))))
+
+(defun combination (n lst)
+  (let* ((count (length lst))
+         (max (bc count n)))
+    (labels ((f (acc)
+               (if (< (length acc) max)
+                   (let ((permu (rnd-select lst n)))
+                     (if (find permu acc)
+                         (f acc)
+                         (f (cons permu acc))))
+                   acc)))
+      (f nil))))
+
