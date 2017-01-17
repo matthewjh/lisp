@@ -1,0 +1,152 @@
+(defvar *ops*  nil)
+(defvar *dbg-ids* nil)
+
+(defstruct op (action nil) (preconds nil) (add-list nil) (del-list nil))
+
+(defun GPS (state goals &optional (*ops* *ops*))
+  (remove-if-not #'action-p (achieve-all (cons '(start) state) goals nil)))
+
+(defun action-p (x)
+  (or (equal x '(start)) (executing-p x)))
+
+(defun appropriate-p (goal op)
+  (member-equal goal (op-add-list op)))
+
+(defun apply-op (state goal op goal-stack)
+  (dbg-indent :gps (length goal-stack) "Consider: ~a" (op-action op))
+  (let ((state2 (achieve-all state (op-preconds op)
+                             (cons goal goal-stack))))
+    (unless (null state2)
+      (dbg-indent :gps (length goal-stack) "Action: ~a" (op-action op))
+      (append (remove-if (lambda (x)
+                           (member-equal x (op-del-list op)))
+                         state2)
+              (op-add-list op)))))
+
+(defun executing-p (x)
+  (starts-with x 'executing))
+
+(defun starts-with (list x)
+  (and (consp list) (eql (first list) x)))
+
+(defun convert-op (op)
+  (unless (some #'executing-p (op-add-list op))
+    (push (list 'executing (op-action op)) (op-add-list op)))
+  op)
+
+(defun op (action &key preconds add-list del-list)
+  (convert-op
+   (make-op :action action :preconds preconds
+            :add-list add-list :del-list del-list)))
+
+(defun member-equal (item list)
+  (member item list :test #'equal))
+
+(defun dbg (id format-string &rest args)
+  (when (member id *dbg-ids*)
+    (fresh-line *debug-io*)
+    (apply #'format *debug-io* format-string args)))
+
+(defun dbg-indent (id indent format-string &rest args)
+  (when (member id *dbg-ids*)
+    (fresh-line *debug-io*)
+    (dotimes (i indent) (princ " " *debug-io*))
+    (apply #'format *debug-io* format-string args)))
+
+(defun debug (&rest ids)
+  (setf *dbg-ids* (union ids *dbg-ids*)))
+
+(defun undebug (&rest ids)
+  (setf *dbg-ids* (if (null ids) nil
+                      (set-difference *dbg-ids* ids))))
+    
+
+(defun find-all (item sequence &rest keyword-args
+                 &key (test #'eql) test-not &allow-other-keys)
+  (if test-not
+      (apply #'remove item sequence
+             :test-not (complement test-not) keyword-args)
+      (apply #'remove item sequence
+             :test (complement test) keyword-args)))
+
+(defun achieve-all (state goals goal-stack)
+  (some (lambda (goals) (achieve-each state goals goal-stack))
+        (orderings goals)))
+
+(defun orderings (l)
+  (if (> (length l) 1)
+      (list l (reverse l))
+      (list l)))
+
+(defun achieve-each (state goals goal-stack)
+  (let ((current-state state))
+    (if (and (every (lambda (g)
+                      (setf current-state
+                            (achieve current-state g goal-stack)))
+                    goals)
+             (subsetp goals current-state :test #'equal))
+        current-state)))
+
+(defun achieve (state goal goal-stack)
+  (dbg-indent :gps (length goal-stack) "Goal: ~a" goal)
+  (cond ((member-equal goal state) state)
+        ((member-equal goal goal-stack) nil)
+        (t (some (lambda (op) (apply-op state goal op goal-stack))
+                 (appropriate-ops goal state)))))
+
+(defun appropriate-ops (goal state)
+  (sort (copy-list (find-all goal *ops* :test #'appropriate-p)) #'<
+        :key (lambda (op)
+               (count-if (lambda (precond)
+                           (not (member-equal precond state)))
+                         (op-preconds op)))))
+
+(defun use (oplist)
+  (length (setf *ops* oplist)))
+
+(defun make-block-ops (blocks)
+  (let ((ops nil))
+    (dolist (a blocks)
+      (dolist (b blocks)
+        (unless (equal a b)
+          (dolist (c blocks)
+            (unless (or (equal c a) (equal c b))
+              (push (move-op a b c) ops)))
+          (push (move-op a 'table b) ops)
+          (push (move-op a b 'table) ops))))
+    ops))
+
+(defun move-op (a b c)
+  (op `(move ,a from ,b to ,c)
+      :preconds `((space on ,a) (space on ,c) (,a on ,b))
+      :add-list (move-ons a b c)
+      :del-list (move-ons a c b)))
+
+(defun move-ons (a b c)
+  (if (eq b 'table)
+      `((,a on ,c))
+      `((,a on ,c) (space on ,b))))
+
+(defparameter *school-ops*
+  (list
+   (make-op :action 'drive-son-to-school
+            :preconds '(son-at-home car-works)
+            :add-list '(son-at-school)
+            :del-list '(son-at-home))
+   (make-op :action 'shop-installs-battery
+            :preconds '(car-needs-battery shop-knows-problem shop-has-money)
+            :add-list '(car-works))
+   (make-op :action 'tell-shop-problem
+            :preconds '(in-communication-with-shop)
+            :add-list '(shop-knows-problem))
+   (make-op :action 'telephone-shop
+            :preconds '(know-phone-number)
+            :add-list '(in-communication-with-shop))
+   (make-op :action 'look-up-number
+            :preconds '(have-phone-book)
+            :add-list '(know-phone-number))
+   (make-op :action 'give-shop-money
+            :preconds '(have-money)
+            :add-list '(shop-has-money)
+            :del-list '(have-money))))
+(mapc #'convert-op *school-ops*)
